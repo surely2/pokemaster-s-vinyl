@@ -80,7 +80,65 @@ body{
 @keyframes orb-drift{from{transform:translate(0,0) scale(1);}to{transform:translate(5vw,4vh) scale(1.12);}}
 .scanlines{position:absolute;inset:0;background:repeating-linear-gradient(0deg,var(--scan) 0px,transparent 1px,transparent 3px);}
 .grain{position:absolute;inset:0;opacity:.035;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");background-size:128px;animation:grain-anim .4s steps(1) infinite;}
-@media(max-width:600px){.grain{display:none;}.orb{filter:blur(60px);opacity:.2;}}
+@media(max-width:600px){
+  /* kill expensive bg effects */
+  .grain{display:none;}
+  .orb{filter:blur(60px);opacity:.2;}
+
+  /* app padding */
+  .app{padding:16px 12px 100px;gap:18px;}
+
+  /* header: stack logo and themes */
+  .header{flex-direction:column;align-items:flex-start;gap:10px;}
+  .logo-main{font-size:clamp(18px,7vw,28px);}
+
+  /* now playing: tighter */
+  .now-playing{padding:20px 16px 18px;}
+
+  /* vinyl stage: stack vertically, vinyl smaller */
+  .vinyl-stage{flex-direction:column;gap:18px;margin-bottom:18px;}
+  .vinyl-container{width:clamp(160px,55vw,210px);}
+
+  /* song panel full width */
+  .song-panel{min-width:0;width:100%;align-items:center;text-align:center;}
+  .now-badge{align-self:center;}
+  .song-title{font-size:clamp(16px,5.5vw,24px);}
+  .song-meta{justify-content:center;}
+  .eq-row{justify-content:center;}
+  .chips{justify-content:center;}
+
+  /* vinyl label font sizes */
+  .v-num{font-size:clamp(14px,4vw,20px);}
+  .v-name{font-size:clamp(6px,2vw,9px);}
+
+  /* controls: tighter padding, bigger touch targets */
+  .controls-panel{padding:16px 12px;}
+  .play-btn{width:64px;height:64px;}
+  .cb.sm{width:40px;height:40px;}
+  .cb.md{width:46px;height:46px;}
+
+  /* sec-ctrls stack vertically */
+  .sec-ctrls{grid-template-columns:1fr;gap:10px;}
+
+  /* speed buttons smaller */
+  .spd{padding:5px 8px;font-size:9px;}
+
+  /* visualizer shorter on mobile */
+  .vis-canvas-wrap{height:60px;}
+
+  /* playlist max height smaller */
+  .pl-wrap{max-height:320px;}
+
+  /* hide keyboard hint on mobile — irrelevant */
+  .kb-hint{display:none;}
+
+  /* cinema exit button repositioned */
+  .cinema-exit{top:12px;right:12px;padding:6px 12px;font-size:8px;}
+
+  /* drop zone compact */
+  .drop-zone{padding:14px 12px;}
+  .dz-icon{font-size:22px;margin-bottom:4px;}
+}
 @keyframes grain-anim{0%{transform:translate(0,0)}25%{transform:translate(-3px,2px)}50%{transform:translate(2px,-3px)}75%{transform:translate(-2px,3px)}100%{transform:translate(3px,-1px)}}
 .note{position:absolute;opacity:0;animation:note-rise linear infinite;user-select:none;pointer-events:none;}
 @keyframes note-rise{0%{opacity:0;transform:translateY(0) rotate(-10deg) scale(.5);}15%{opacity:.45;}80%{opacity:.1;}100%{opacity:0;transform:translateY(-105vh) rotate(380deg) scale(1.2);}}
@@ -191,7 +249,7 @@ body{
 .now-badge-text{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:3px;color:var(--a1);text-transform:uppercase;transition:color .4s;}
 
 .song-title-wrap{overflow:hidden;}
-.song-title{font-family:'Outfit',sans-serif;font-size:clamp(19px,3.2vw,36px);font-weight:900;line-height:1.1;color:var(--t1);letter-spacing:-.5px;display:inline-block;white-space:nowrap;}
+.song-title{font-family:'Outfit',sans-serif;font-size:clamp(17px,3.2vw,36px);font-weight:900;line-height:1.1;color:var(--t1);letter-spacing:-.5px;display:inline-block;white-space:nowrap;}
 .song-title.scroll{animation:title-scroll 14s linear infinite;}
 @keyframes title-scroll{0%,30%{transform:translateX(0);}85%,100%{transform:translateX(-60%);}}
 
