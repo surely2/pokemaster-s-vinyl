@@ -474,11 +474,10 @@ input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.4);}
         <div class="pl-count" id="plCount">0 tracks</div>
       </div>
 
-      <label class="drop-zone" id="dropZone">
-        <input type="file" id="fileInput" accept="audio/*" multiple>
-        <span class="dz-icon">🎵</span>
-        <div class="dz-txt"><strong>Click to browse</strong> or drop files here<span class="dz-fmt">MP3 · WAV · OGG · FLAC · M4A</span></div>
-      </label>
+      <div class="drop-zone" id="dropZone" onclick="loadFromGitHub()" style="cursor:pointer;">
+        <span class="dz-icon" id="dzIcon">🎵</span>
+        <div class="dz-txt" id="dzTxt"><strong>Click to load songs</strong> from GitHub<span class="dz-fmt" id="dzFmt">Fetching from songs/ folder</span></div>
+      </div>
 
       <div class="pl-wrap glass" id="playlist">
         <div class="empty-pl"><span class="ei">💿</span>Drop your tracks above<br>to start the party</div>
@@ -545,21 +544,73 @@ function setTheme(t,btn){
 let toastT=null;
 function toast(msg){const el=document.getElementById('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>el.classList.remove('show'),2000);}
 
-// ── Files ──
-document.getElementById('fileInput').addEventListener('change',e=>{addFiles([...e.target.files]);e.target.value='';});
-const dz=document.getElementById('dropZone');
-dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('drag-over');});
-dz.addEventListener('dragleave',()=>dz.classList.remove('drag-over'));
-dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('drag-over');const f=[...e.dataTransfer.files].filter(f=>f.type.startsWith('audio')||/\.(mp3|wav|ogg|flac|m4a|aac)$/i.test(f.name));addFiles(f);});
+// ── GitHub Config ──
+const GITHUB_USER = 'surely2';
+const GITHUB_REPO = 'pokemaster-s-vinyl';
+const GITHUB_BRANCH = 'main';
+const SONGS_FOLDER = 'songs';
 
-function addFiles(files){
-  if(!files.length)return;
-  files.forEach(f=>{const url=URL.createObjectURL(f);const name=f.name.replace(/\.[^/.]+$/,'');tracks.push({name,url,duration:'—:——'});fetchDur(url,tracks.length-1);});
-  renderPl();
-  if(cur===-1&&tracks.length)loadTrack(0);
-  toast(`+${files.length} TRACK${files.length>1?'S':''} ADDED`);
-  document.getElementById('cTotal').textContent=tracks.length;
+// ── GitHub Loader ──
+async function loadFromGitHub(){
+  const dz=document.getElementById('dropZone');
+  const dzIcon=document.getElementById('dzIcon');
+  const dzTxt=document.getElementById('dzTxt');
+  const dzFmt=document.getElementById('dzFmt');
+
+  dz.style.pointerEvents='none';
+  dzIcon.textContent='⏳';
+  dzTxt.innerHTML='<strong>Loading…</strong> Fetching from GitHub';
+  dzFmt.textContent='Please wait';
+
+  try {
+    const apiUrl=`https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/${SONGS_FOLDER}?ref=${GITHUB_BRANCH}`;
+    const res=await fetch(apiUrl);
+    if(!res.ok)throw new Error(`GitHub API error: ${res.status} ${res.statusText}`);
+    const files=await res.json();
+    if(!Array.isArray(files))throw new Error('Unexpected API response');
+
+    const audioExts=/\.(mp3|wav|ogg|flac|m4a|aac|opus|weba)$/i;
+    const audioFiles=files.filter(f=>f.type==='file'&&audioExts.test(f.name));
+
+    if(!audioFiles.length){
+      dzIcon.textContent='😶';
+      dzTxt.innerHTML='<strong>No audio files</strong> found in songs/';
+      dzFmt.textContent='Add MP3/WAV/OGG/FLAC files to the songs folder';
+      dz.style.pointerEvents='auto';
+      toast('NO AUDIO FILES IN SONGS FOLDER');
+      return;
+    }
+
+    audioFiles.forEach(f=>{
+      // Use raw content URL so the browser can stream it
+      const url=`https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${SONGS_FOLDER}/${encodeURIComponent(f.name)}`;
+      const name=f.name.replace(/\.[^/.]+$/,'');
+      tracks.push({name,url,duration:'—:——'});
+      fetchDur(url,tracks.length-1);
+    });
+
+    renderPl();
+    if(cur===-1&&tracks.length)loadTrack(0);
+    toast(`+${audioFiles.length} TRACK${audioFiles.length!==1?'S':''} LOADED`);
+    document.getElementById('cTotal').textContent=tracks.length;
+
+    dzIcon.textContent='✅';
+    dzTxt.innerHTML=`<strong>${audioFiles.length} tracks loaded</strong> from songs/`;
+    dzFmt.textContent='Click to reload';
+    dz.style.pointerEvents='auto';
+
+  } catch(err){
+    console.error(err);
+    dzIcon.textContent='❌';
+    dzTxt.innerHTML=`<strong>Failed to load</strong> songs`;
+    dzFmt.textContent=err.message;
+    dz.style.pointerEvents='auto';
+    toast('ERROR LOADING FROM GITHUB');
+  }
 }
+
+// Auto-load on page start
+window.addEventListener('load',()=>setTimeout(loadFromGitHub,600));
 
 function fetchDur(url,idx){
   const t=new Audio(url);
