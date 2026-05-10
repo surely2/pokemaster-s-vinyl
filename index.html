@@ -80,6 +80,7 @@ body{
 @keyframes orb-drift{from{transform:translate(0,0) scale(1);}to{transform:translate(5vw,4vh) scale(1.12);}}
 .scanlines{position:absolute;inset:0;background:repeating-linear-gradient(0deg,var(--scan) 0px,transparent 1px,transparent 3px);}
 .grain{position:absolute;inset:0;opacity:.035;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");background-size:128px;animation:grain-anim .4s steps(1) infinite;}
+@media(max-width:600px){.grain{display:none;}.orb{filter:blur(60px);opacity:.2;}}
 @keyframes grain-anim{0%{transform:translate(0,0)}25%{transform:translate(-3px,2px)}50%{transform:translate(2px,-3px)}75%{transform:translate(-2px,3px)}100%{transform:translate(3px,-1px)}}
 .note{position:absolute;opacity:0;animation:note-rise linear infinite;user-select:none;pointer-events:none;}
 @keyframes note-rise{0%{opacity:0;transform:translateY(0) rotate(-10deg) scale(.5);}15%{opacity:.45;}80%{opacity:.1;}100%{opacity:0;transform:translateY(-105vh) rotate(380deg) scale(1.2);}}
@@ -357,7 +358,7 @@ body.cinema-mode .kb-hint{opacity:0;pointer-events:none;}
 <div class="cinema-overlay" id="cinemaOverlay"></div>
 <button class="cinema-exit" onclick="toggleCinema()">✕ EXIT CINEMA</button>
 <div class="toast" id="toast"></div>
-<audio id="audio"></audio>
+<audio id="audio" preload="none" playsinline x-webkit-airplay="allow"></audio>
 
 <div class="app">
 
@@ -525,7 +526,8 @@ let cur=-1, playing=false, shuffled=false, repeatMode=0, muted=false, visMode='b
 
 // ── Floating notes ──
 const nc=document.getElementById('notesBg');
-['♩','♪','♫','♬','♩','♪','♫','𝅘𝅥𝅮','♬'].forEach((ch,i)=>{
+const isMobile=window.innerWidth<600;
+(isMobile?['♩','♪','♫']:['♩','♪','♫','♬','♩','♪','♫','𝅘𝅥𝅮','♬']).forEach((ch,i)=>{
   const n=document.createElement('div');n.className='note';n.textContent=ch;
   n.style.cssText=`left:${Math.random()*100}%;bottom:${Math.random()*5}%;animation-duration:${10+Math.random()*14}s;animation-delay:${Math.random()*12}s;font-size:${14+Math.random()*18}px;color:var(--a${(i%3)+1});`;
   nc.appendChild(n);
@@ -553,8 +555,10 @@ function initAudioCtx(){
 
 function getCSSVar(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
 
+let _frameSkip=0;
 function drawVis(){
   animFrame=requestAnimationFrame(drawVis);
+  if(isMobile&&(++_frameSkip%2!==0))return;
   const W=canvas.offsetWidth,H=canvas.offsetHeight;
   if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H;}
   ctx2d.clearRect(0,0,W,H);
@@ -626,6 +630,12 @@ function drawVis(){
   }
 }
 drawVis();
+
+// Pause canvas when tab hidden
+document.addEventListener('visibilitychange',()=>{
+  if(document.hidden){cancelAnimationFrame(animFrame);animFrame=null;}
+  else if(!animFrame)drawVis();
+});
 
 function setVM(m,btn){visMode=m;document.querySelectorAll('.vm').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
 
@@ -701,13 +711,22 @@ async function loadFromGitHub(){
 // Auto-load on page start
 window.addEventListener('load',()=>setTimeout(loadFromGitHub,600));
 
-function fetchDur(url,idx){
-  const t=new Audio(url);
-  t.addEventListener('loadedmetadata',()=>{
-    tracks[idx].duration=fmt(t.duration);
-    const el=document.querySelector(`.track-item[data-i="${idx}"] .ti-dur`);
-    if(el)el.textContent=tracks[idx].duration;
-  });
+// ── Throttled duration fetcher (max 3 concurrent, mobile-friendly) ──
+const durQueue=[];let durActive=0;const DUR_CONCURRENCY=3;
+function fetchDur(url,idx){durQueue.push({url,idx});pumpDurQueue();}
+function pumpDurQueue(){
+  while(durActive<DUR_CONCURRENCY&&durQueue.length){
+    const {url,idx}=durQueue.shift();durActive++;
+    const t=new Audio();t.preload='metadata';
+    t.addEventListener('loadedmetadata',()=>{
+      tracks[idx].duration=fmt(t.duration);
+      const el=document.querySelector(`.track-item[data-i="${idx}"] .ti-dur`);
+      if(el)el.textContent=tracks[idx].duration;
+      t.src='';durActive--;pumpDurQueue();
+    });
+    t.addEventListener('error',()=>{durActive--;pumpDurQueue();});
+    t.src=url;
+  }
 }
 
 function renderPl(){
@@ -754,7 +773,7 @@ function loadTrack(idx){
   document.getElementById('progBuf').style.width='0%';
   document.getElementById('tElap').textContent='0:00';
   document.getElementById('tDur').textContent=t.duration;
-  renderPl();beginPlay();
+  renderPl();beginPlay();updateMediaSession();
 }
 function beginPlay(){
   try{initAudioCtx();if(audioCtx.state==='suspended')audioCtx.resume();}catch(e){}
@@ -844,6 +863,60 @@ document.addEventListener('keydown',e=>{
 });
 
 function fmt(s){if(isNaN(s)||s===Infinity)return'0:00';return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');}
+
+// ── Media Session API (lock screen controls + bg play) ──
+function updateMediaSession(){
+  if(!('mediaSession' in navigator))return;
+  const t=tracks[cur];
+  if(!t)return;
+  navigator.mediaSession.metadata=new MediaMetadata({
+    title:t.name,
+    artist:"Pokemaster's Vinyls",
+    album:"Pokemaster's Vinyls",
+    artwork:[
+      {src:'https://raw.githubusercontent.com/surely2/pokemaster-s-vinyl/main/icon.png',sizes:'512x512',type:'image/png'}
+    ]
+  });
+  navigator.mediaSession.setActionHandler('play',()=>beginPlay());
+  navigator.mediaSession.setActionHandler('pause',()=>stopPlay());
+  navigator.mediaSession.setActionHandler('previoustrack',()=>prevTrack());
+  navigator.mediaSession.setActionHandler('nexttrack',()=>nextTrack());
+  navigator.mediaSession.setActionHandler('seekto',(d)=>{if(audio.duration)audio.currentTime=d.seekTime;});
+}
+
+// Update media session playback state
+audio.addEventListener('play',()=>{'mediaSession' in navigator&&(navigator.mediaSession.playbackState='playing');});
+audio.addEventListener('pause',()=>{'mediaSession' in navigator&&(navigator.mediaSession.playbackState='paused');});
+audio.addEventListener('timeupdate',()=>{
+  if('mediaSession' in navigator&&audio.duration&&!isNaN(audio.duration)){
+    try{navigator.mediaSession.setPositionState({duration:audio.duration,playbackRate:audio.playbackRate,position:audio.currentTime});}catch(e){}
+  }
+});
+
+// ── Wake Lock (prevent screen sleep while playing) ──
+let wakeLock=null;
+async function requestWakeLock(){
+  if(!('wakeLock' in navigator))return;
+  try{wakeLock=await navigator.wakeLock.request('screen');}catch(e){}
+}
+async function releaseWakeLock(){
+  if(wakeLock){try{await wakeLock.release();}catch(e){}wakeLock=null;}
+}
+// Re-acquire wake lock when tab becomes visible again
+document.addEventListener('visibilitychange',async()=>{
+  if(!document.hidden&&playing)await requestWakeLock();
+});
+
+// Hook wake lock into play/stop
+const _origBeginPlay=beginPlay;
+window._playHooked=true;
+
+audio.addEventListener('play',()=>{if(playing)requestWakeLock();});
+audio.addEventListener('pause',()=>releaseWakeLock());
+
+// Update page title with current song
+audio.addEventListener('play',()=>{if(cur>=0&&tracks[cur])document.title=tracks[cur].name+' — Pokemaster\'s Vinyls';});
+audio.addEventListener('pause',()=>{document.title="Pokemaster\'s Vinyls";});
 
 audio.volume=.8;
 setTimeout(()=>toast('✦ WELCOME TO POKEMASTER\'S VINYLS ✦'),900);
