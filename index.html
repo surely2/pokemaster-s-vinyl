@@ -265,8 +265,25 @@ input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.4);}
 .vis-modes{display:flex;gap:6px;}
 .vm{background:none;border:1px solid var(--border2);color:var(--t3);font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1px;border-radius:6px;padding:3px 8px;cursor:pointer;outline:none;transition:all .2s;}
 .vm.active,.vm:hover{color:var(--a1);border-color:var(--border);background:var(--pb);}
-.vis-bars{height:58px;display:flex;align-items:flex-end;gap:1.5px;}
-.vb{flex:1;border-radius:2px 2px 0 0;background:linear-gradient(to top,var(--a1),var(--a3));min-height:2px;transition:height .08s;}
+.vis-canvas-wrap{height:80px;position:relative;border-radius:10px;overflow:hidden;background:rgba(0,0,0,.18);}
+#visCanvas{width:100%;height:100%;display:block;}
+
+/* ═══════════════ CINEMA MODE ═══════════════ */
+.cinema-btn{background:rgba(255,255,255,.04);border:1px solid var(--border2);color:var(--t2);cursor:pointer;border-radius:10px;padding:5px 10px;font-family:'Space Mono',monospace;font-size:8px;letter-spacing:1px;outline:none;transition:all .2s;display:flex;align-items:center;gap:5px;}
+.cinema-btn:hover{color:var(--a1);border-color:var(--border);background:var(--pb);}
+.cinema-overlay{position:fixed;inset:0;z-index:0;background:rgba(0,0,0,.75);opacity:0;pointer-events:none;transition:opacity .6s;}
+body.cinema-mode .cinema-overlay{opacity:1;}
+.cinema-exit{position:fixed;top:20px;right:20px;z-index:200;opacity:0;pointer-events:none;transition:opacity .4s;background:rgba(0,0,0,.5);border:1px solid var(--border);color:var(--t1);border-radius:20px;padding:7px 16px;font-family:'Space Mono',monospace;font-size:9px;letter-spacing:2px;cursor:pointer;outline:none;}
+body.cinema-mode .cinema-exit{opacity:1;pointer-events:auto;}
+body.cinema-mode .cinema-exit:hover{background:var(--pb);color:var(--a1);}
+.header,.playlist-col,.controls-panel,.vis-panel{transition:opacity .5s,transform .5s,border-color .5s,box-shadow .5s,background .5s;}
+.now-playing{transition:transform .6s cubic-bezier(.34,1.2,.64,1),border-color .5s,box-shadow .5s,background .5s;}
+body.cinema-mode .header{opacity:0;pointer-events:none;transform:translateY(-16px);}
+body.cinema-mode .playlist-col{opacity:0;pointer-events:none;transform:translateX(24px);}
+body.cinema-mode .controls-panel{opacity:0;pointer-events:none;transform:translateY(16px);}
+body.cinema-mode .vis-panel{opacity:0;pointer-events:none;}
+body.cinema-mode .now-playing{transform:scale(1.03);}
+body.cinema-mode .kb-hint{opacity:0;pointer-events:none;}
 
 /* ═══════════════ RIGHT COL ═══════════════ */
 .playlist-col{display:flex;flex-direction:column;gap:16px;}
@@ -337,6 +354,8 @@ input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.4);}
   <div class="grain"></div>
   <div id="notesBg"></div>
 </div>
+<div class="cinema-overlay" id="cinemaOverlay"></div>
+<button class="cinema-exit" onclick="toggleCinema()">✕ EXIT CINEMA</button>
 <div class="toast" id="toast"></div>
 <audio id="audio"></audio>
 
@@ -457,13 +476,21 @@ input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.4);}
       <div class="vis-panel glass">
         <div class="vis-top">
           <span class="vis-label">Spectrum</span>
-          <div class="vis-modes">
-            <button class="vm active" onclick="setVM('bars',this)">Bars</button>
-            <button class="vm" onclick="setVM('wave',this)">Wave</button>
-            <button class="vm" onclick="setVM('dots',this)">Dots</button>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <div class="vis-modes">
+              <button class="vm active" onclick="setVM('bars',this)">Bars</button>
+              <button class="vm" onclick="setVM('wave',this)">Wave</button>
+              <button class="vm" onclick="setVM('circle',this)">Circle</button>
+            </div>
+            <button class="cinema-btn" onclick="toggleCinema()" title="Cinema Mode">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+              CINEMA
+            </button>
           </div>
         </div>
-        <div class="vis-bars" id="visBars"></div>
+        <div class="vis-canvas-wrap">
+          <canvas id="visCanvas"></canvas>
+        </div>
       </div>
     </div>
 
@@ -495,7 +522,6 @@ input[type=range]:hover::-webkit-slider-thumb{transform:scale(1.4);}
 const audio = document.getElementById('audio');
 const tracks = [];
 let cur=-1, playing=false, shuffled=false, repeatMode=0, muted=false, visMode='bars';
-let visTick=null;
 
 // ── Floating notes ──
 const nc=document.getElementById('notesBg');
@@ -509,28 +535,108 @@ const nc=document.getElementById('notesBg');
 const eqRow=document.getElementById('eqRow');
 for(let i=0;i<20;i++){const b=document.createElement('div');b.className='eq-b';b.style.cssText=`animation-duration:${.25+Math.random()*.65}s;animation-delay:${Math.random()*.45}s;height:${3+Math.random()*27}px;`;eqRow.appendChild(b);}
 
-// ── Visualizer ──
-const vb=document.getElementById('visBars');
-for(let i=0;i<52;i++){const b=document.createElement('div');b.className='vb';b.style.height='3px';vb.appendChild(b);}
-function startVis(){
-  if(visTick)return;
-  const bars=vb.querySelectorAll('.vb');
-  visTick=setInterval(()=>{
-    const t=Date.now();
-    bars.forEach((b,i)=>{
-      let h;
-      if(visMode==='bars') h=playing?(3+Math.random()*55):2;
-      else if(visMode==='wave') h=playing?(Math.abs(Math.sin(t/280+i*.42))*50+4):2;
-      else h=playing?(Math.random()<.28?42+Math.random()*16:3):2;
-      b.style.height=Math.round(h)+'px';
-      b.style.opacity=playing?(.3+Math.random()*.7):.12;
-      b.style.borderRadius=visMode==='dots'?'50%':'2px 2px 0 0';
-    });
-  },75);
+// ── Real Web Audio Visualizer ──
+const canvas=document.getElementById('visCanvas');
+const ctx2d=canvas.getContext('2d');
+let audioCtx=null,analyser=null,srcNode=null,animFrame=null;
+
+function initAudioCtx(){
+  if(audioCtx)return;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  analyser=audioCtx.createAnalyser();
+  analyser.fftSize=512;
+  analyser.smoothingTimeConstant=0.82;
+  srcNode=audioCtx.createMediaElementSource(audio);
+  srcNode.connect(analyser);
+  analyser.connect(audioCtx.destination);
 }
-startVis();
+
+function getCSSVar(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+
+function drawVis(){
+  animFrame=requestAnimationFrame(drawVis);
+  const W=canvas.offsetWidth,H=canvas.offsetHeight;
+  if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H;}
+  ctx2d.clearRect(0,0,W,H);
+
+  if(!analyser){
+    // fallback fake when no audio context yet
+    const bars=40;
+    for(let i=0;i<bars;i++){
+      const h=playing?(3+Math.abs(Math.sin(Date.now()/400+i*.35))*H*.7):3;
+      const x=i*(W/bars);const bw=(W/bars)-1.5;
+      const grad=ctx2d.createLinearGradient(0,H,0,H-h);
+      grad.addColorStop(0,getCSSVar('--a1'));grad.addColorStop(1,getCSSVar('--a3'));
+      ctx2d.fillStyle=grad;ctx2d.beginPath();ctx2d.roundRect(x,H-h,bw,h,2);ctx2d.fill();
+    }
+    return;
+  }
+
+  const bufLen=analyser.frequencyBinCount;
+  const dataArr=new Uint8Array(bufLen);
+  analyser.getByteFrequencyData(dataArr);
+  const c1=getCSSVar('--a1'),c2=getCSSVar('--a2'),c3=getCSSVar('--a3');
+
+  if(visMode==='bars'){
+    const bars=80;const bw=W/bars-1;
+    for(let i=0;i<bars;i++){
+      const idx=Math.floor(i/bars*bufLen*0.75);
+      const v=dataArr[idx]/255;
+      const h=Math.max(2,v*H);
+      const x=i*(W/bars);
+      const grad=ctx2d.createLinearGradient(0,H,0,H-h);
+      grad.addColorStop(0,c1);grad.addColorStop(0.5,c2);grad.addColorStop(1,c3);
+      ctx2d.globalAlpha=0.3+v*0.7;
+      ctx2d.fillStyle=grad;ctx2d.beginPath();ctx2d.roundRect(x,H-h,bw,h,2);ctx2d.fill();
+    }
+    ctx2d.globalAlpha=1;
+  } else if(visMode==='wave'){
+    analyser.getByteTimeDomainData(dataArr);
+    ctx2d.beginPath();ctx2d.lineWidth=2;
+    const grad=ctx2d.createLinearGradient(0,0,W,0);
+    grad.addColorStop(0,c3);grad.addColorStop(0.5,c1);grad.addColorStop(1,c2);
+    ctx2d.strokeStyle=grad;ctx2d.shadowColor=c1;ctx2d.shadowBlur=8;
+    for(let i=0;i<bufLen;i++){
+      const x=(i/bufLen)*W;const y=((dataArr[i]/128)-1)*(H/2)+H/2;
+      i===0?ctx2d.moveTo(x,y):ctx2d.lineTo(x,y);
+    }
+    ctx2d.stroke();ctx2d.shadowBlur=0;
+  } else if(visMode==='circle'){
+    const cx=W/2,cy=H/2,r=Math.min(W,H)*0.28;
+    const bars=120;
+    for(let i=0;i<bars;i++){
+      const idx=Math.floor(i/bars*bufLen*0.7);
+      const v=dataArr[idx]/255;
+      const angle=(i/bars)*Math.PI*2-Math.PI/2;
+      const len=v*r*0.9+3;
+      const x1=cx+Math.cos(angle)*r;const y1=cy+Math.sin(angle)*r;
+      const x2=cx+Math.cos(angle)*(r+len);const y2=cy+Math.sin(angle)*(r+len);
+      const grad=ctx2d.createLinearGradient(x1,y1,x2,y2);
+      grad.addColorStop(0,c1);grad.addColorStop(1,c3);
+      ctx2d.globalAlpha=0.4+v*0.6;
+      ctx2d.strokeStyle=grad;ctx2d.lineWidth=2;ctx2d.shadowColor=c1;ctx2d.shadowBlur=v*10;
+      ctx2d.beginPath();ctx2d.moveTo(x1,y1);ctx2d.lineTo(x2,y2);ctx2d.stroke();
+    }
+    ctx2d.globalAlpha=1;ctx2d.shadowBlur=0;
+    // center dot
+    ctx2d.beginPath();ctx2d.arc(cx,cy,r*0.12,0,Math.PI*2);
+    const grd=ctx2d.createRadialGradient(cx,cy,0,cx,cy,r*0.12);
+    grd.addColorStop(0,c2);grd.addColorStop(1,'transparent');
+    ctx2d.fillStyle=grd;ctx2d.fill();
+  }
+}
+drawVis();
 
 function setVM(m,btn){visMode=m;document.querySelectorAll('.vm').forEach(b=>b.classList.remove('active'));btn.classList.add('active');}
+
+// ── Cinema Mode ──
+let cinemaMode=false;
+function toggleCinema(){
+  cinemaMode=!cinemaMode;
+  document.body.classList.toggle('cinema-mode',cinemaMode);
+  toast(cinemaMode?'🎬 CINEMA MODE — PRESS ESC TO EXIT':'CINEMA MODE OFF');
+}
+document.addEventListener('keydown',e=>{if(e.code==='Escape'&&cinemaMode)toggleCinema();});
 
 // ── Theme ──
 function setTheme(t,btn){
@@ -650,7 +756,10 @@ function loadTrack(idx){
   document.getElementById('tDur').textContent=t.duration;
   renderPl();beginPlay();
 }
-function beginPlay(){audio.play().catch(()=>{});playing=true;updateUI();}
+function beginPlay(){
+  try{initAudioCtx();if(audioCtx.state==='suspended')audioCtx.resume();}catch(e){}
+  audio.play().catch(()=>{});playing=true;updateUI();
+}
 function stopPlay(){audio.pause();playing=false;updateUI();}
 function resetPlayer(){
   document.getElementById('songTitle').textContent='Load your tracks';
